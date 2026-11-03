@@ -687,6 +687,16 @@ If only one EDA window is connected, it's automatically selected as active.
 7. **Permission errors**: All API interfaces are controlled by EDA's permission system. If a specific API consistently fails to execute (returns error or null) while other APIs work fine, and you've confirmed the call matches the documentation exactly, it may be **blocked by permissions** — not a code bug. The EDA client may restrict certain operations based on user license, project settings, or document state. Inform the user that the operation may require elevated permissions or a different EDA edition.
 8. **Persistent errors?**: If you've verified the API call matches the documentation exactly, ruled out permission issues, and still encounter unexpected errors, consider reporting the issue through official EasyEDA support channels
 
+### Verified pitfalls (client 4.1.x, Run API Gateway)
+
+These were reproduced against a live client and are easy to misdiagnose as API bugs:
+
+1. **Copper-pour rectangle anchor** — in `createPolygon(['R', x, y, w, h, rx, ry])` the anchor `(x, y)` is the **min-x / max-y corner** and `h` extends toward **−Y** (same encoding as the document format). A pour intended to cover `y ∈ [0, 1200]` must be created as `['R', 0, 1200, 1200, 1200, 0, 0]`; `['R', 0, 0, 1200, 1200]` actually covers `y ∈ [−1200, 0]`, i.e. outside the board, and yields an empty fill without an error.
+2. **`rebuildCopperRegion()` returning `undefined`** — check the pour border first. If it lies outside the board outline the fill is empty; once the border is inside the board (inset a few mil), the instance method `pour.rebuildCopperRegion()` succeeds and `eda.pcb_PrimitivePoured.getAll()` returns the filled primitives. There is no class-level call — fetch the instance with `eda.pcb_PrimitivePour.get(id)` first.
+3. **`getState_Pads().primitiveId` is component-local** — values such as `e17` are local pad IDs, and `eda.pcb_PrimitivePad.get('e17')` returns `null`. The global primitive ID is the component's primitive ID followed by the local pad ID (e.g. `141f92e01d918ceb` + `e17` = `141f92e01d918cebe17`); match against `eda.pcb_PrimitivePad.getAll()` or build the prefix yourself.
+4. **`ESYS_Unit` is not exposed in the `/execute` sandbox** — examples using `ESYS_Unit.MILLIMETER` throw `ReferenceError`. Pass the enum's string value instead: `'mm'` (also `'cm'`, `'in'`, …).
+5. **`saveFileToFileSystem()` is path-whitelisted** — writing to an arbitrary project path (e.g. `C:\git-program\...`) returns `{"error":"路径不允许"}`. Use `eda.sys_FileSystem.saveFile(file, name)` to send the file to the client's download directory (it may appear as a `.tmp` first), or write only under an allowed path. `getDocumentsPath()` / `getProjectsPaths()` may return empty in the gateway context.
+
 ### Failure Handling Rules
 
 When developing extensions, follow these rules:
